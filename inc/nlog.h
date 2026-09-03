@@ -10,7 +10,8 @@ extern "C" {
  * @brief Ncore 轻量日志接口
  *
  * nlog 提供统一的日志 level、tag 和格式化接口，默认 sink 为 stderr
- * 业务代码只依赖 NLOG_D/NLOG_I/NLOG_W/NLOG_E，不直接依赖具体 sink
+ * NLOG_D/NLOG_I/NLOG_W/NLOG_E 会自动使用当前源文件作为 tag
+ * 如需自定义 tag，可在包含本头文件前定义 NLOG_TAG
  */
 
 enum nlog_level {
@@ -39,17 +40,26 @@ enum nlog_level nlog_get_level(void);
  */
 void nlog_write(enum nlog_level level, const char *tag, const char *fmt, ...);
 
-#define NLOG_D(tag, fmt, ...) \
-    nlog_write(NLOG_LEVEL_DEBUG, (tag), (fmt), ##__VA_ARGS__)
+/*
+ * 默认使用当前源文件名作为 tag
+ * 调用者可在 #include "nlog.h" 前定义 NLOG_TAG 覆盖默认值
+ */
+#ifndef NLOG_TAG
+#define NLOG_TAG __FILE__
+#endif
 
-#define NLOG_I(tag, fmt, ...) \
-    nlog_write(NLOG_LEVEL_INFO, (tag), (fmt), ##__VA_ARGS__)
+/* 使用单个 __VA_ARGS__ 保持 C99 可变参数宏的标准写法 */
+#define NLOG_D(...) \
+    nlog_write(NLOG_LEVEL_DEBUG, NLOG_TAG, __VA_ARGS__)
 
-#define NLOG_W(tag, fmt, ...) \
-    nlog_write(NLOG_LEVEL_WARN, (tag), (fmt), ##__VA_ARGS__)
+#define NLOG_I(...) \
+    nlog_write(NLOG_LEVEL_INFO, NLOG_TAG, __VA_ARGS__)
 
-#define NLOG_E(tag, fmt, ...) \
-    nlog_write(NLOG_LEVEL_ERROR, (tag), (fmt), ##__VA_ARGS__)
+#define NLOG_W(...) \
+    nlog_write(NLOG_LEVEL_WARN, NLOG_TAG, __VA_ARGS__)
+
+#define NLOG_E(...) \
+    nlog_write(NLOG_LEVEL_ERROR, NLOG_TAG, __VA_ARGS__)
 
 #ifdef __cplusplus
 }
