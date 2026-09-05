@@ -1,10 +1,12 @@
 #define _POSIX_C_SOURCE 200809L
 
+#include <pthread.h>
 #include <stdarg.h>
 #include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 
 #include "ncore/nlog.h"
 
@@ -82,10 +84,10 @@ void nlog_write(enum nlog_level level, const char *tag, const char *fmt, ...)
     if (clock_gettime(CLOCK_REALTIME, &ts) != 0)
         return;
 
-    if (!localtime_r(&ts.tv_sec, &tm_now))
+    if (!gmtime_r(&ts.tv_sec, &tm_now))
         return;
 
-    if (strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", &tm_now) == 0)
+    if (strftime(time_buf, sizeof(time_buf), "%Y-%m-%dT%H:%M:%S", &tm_now) == 0)
         return;
 
     tag_name = nlog_tag_name(tag);
@@ -93,10 +95,12 @@ void nlog_write(enum nlog_level level, const char *tag, const char *fmt, ...)
     /* 锁住 stderr，保证多个线程同时写日志时每条日志保持完整 */
     flockfile(stderr);
 
-    fprintf(stderr, "%s.%03ld [%s]",
+    fprintf(stderr, "%s.%03ldZ [%s] [pid=%ld tid=%lu]",
             time_buf,
             ts.tv_nsec / 1000000L,
-            nlog_level_name(level));
+            nlog_level_name(level),
+            (long)getpid(),
+            (unsigned long)pthread_self());
 
     if (tag_name && tag_name[0] != '\0')
         fprintf(stderr, " [%s]", tag_name);
