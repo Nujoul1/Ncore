@@ -4,7 +4,7 @@ project(Ncore LANGUAGES C)
 
 find_package(Threads REQUIRED)
 
-add_library(ncore
+add_library(ncore STATIC
     src/nfifo.c
     src/nthread_message.c
     src/nlog.c
