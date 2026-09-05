@@ -8,7 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "nthread_message.h"
+#include "ncore/nthread_message.h"
 
 struct thread_call {
     struct nthread_message_queue *mq;

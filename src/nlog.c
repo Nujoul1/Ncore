@@ -6,7 +6,7 @@
 #include <string.h>
 #include <time.h>
 
-#include "nlog.h"
+#include "ncore/nlog.h"
 
 static atomic_int g_nlog_level = NLOG_LEVEL_INFO;
 

@@ -5,7 +5,7 @@
 #include <pthread.h>
 
 #include "nfifo.h"
-#include "nthread_message.h"
+#include "ncore/nthread_message.h"
 
 #define NERROR(e) (-(e))   ///< Returns a negative error code from a POSIX error code, to return from library functions.
 

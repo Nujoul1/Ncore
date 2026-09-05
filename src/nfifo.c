@@ -5,7 +5,7 @@
 #include <string.h>
 #include <errno.h>
 
-#include "nfifo.h"
+#include "ncore/nfifo.h"
 
 #define AUTO_GROW_DEFAULT_BYTES (1024 * 1024)
 

@@ -5,7 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "nfifo.h"
+#include "ncore/nfifo.h"
 
 enum { MODEL_CAP = 200000, STEPS = 50000 };
 
