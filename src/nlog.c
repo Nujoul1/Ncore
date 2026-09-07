@@ -18,7 +18,11 @@
 
 #include "ncore/nlog.h"
 
-static atomic_int g_nlog_level = NLOG_LEVEL_INFO;
+#ifndef NLOG_DEFAULT_LEVEL
+#define NLOG_DEFAULT_LEVEL NLOG_LEVEL_INFO
+#endif
+
+static atomic_int g_nlog_level = NLOG_DEFAULT_LEVEL;
 static atomic_uint_fast64_t g_nlog_sequence = 0;
 
 static int nlog_level_valid(enum nlog_level level)
