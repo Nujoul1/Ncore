@@ -10,7 +10,7 @@ extern "C" {
  * @brief Ncore 轻量日志接口
  *
  * nlog 提供统一的日志 level, tag 和格式化接口, 默认 sink 为 stderr
- * NLOG_D/NLOG_I/NLOG_W/NLOG_E 会自动记录调用位置
+ * NLOG_D/NLOG_I/NLOG_W/NLOG_E 会自动记录源文件和行号
  * 如需自定义 tag, 可在包含本头文件前定义 NLOG_TAG
  */
 
@@ -19,6 +19,7 @@ enum nlog_level {
     NLOG_LEVEL_INFO,
     NLOG_LEVEL_WARN,
     NLOG_LEVEL_ERROR,
+    NLOG_LEVEL_OFF,
 };
 
 /**

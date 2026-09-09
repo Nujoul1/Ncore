@@ -37,14 +37,13 @@ int main(void)
 
     assert(strstr(output, "event=filtered") == NULL);
     assert(strstr(output, "event=nlog_test value=1") != NULL);
-    assert(strstr(output, "level=INFO") != NULL);
-    assert(strstr(output, "tag=nlog_test") != NULL);
-    assert(strstr(output, "source=nlog_test.c:") != NULL);
-    assert(strstr(output, "function=main") != NULL);
-    assert(strstr(output, "mono_ms=") != NULL);
-    assert(strstr(output, "seq=") != NULL);
-    assert(strstr(output, "pid=") != NULL);
-    assert(strstr(output, "tid=") != NULL);
+    assert(strstr(output, " I/nlog_test [T") != NULL);
+    assert(strstr(output, "] nlog_test.c:") != NULL);
+    assert(strstr(output, " | event=nlog_test value=1") != NULL);
+    assert(strstr(output, "mono_ms=") == NULL);
+    assert(strstr(output, "seq=") == NULL);
+    assert(strstr(output, "pid=") == NULL);
+    assert(strstr(output, "function=") == NULL);
 
     nlog_set_level(NLOG_LEVEL_DEBUG);
     return 0;

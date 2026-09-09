@@ -23,26 +23,24 @@
 #endif
 
 static atomic_int g_nlog_level = NLOG_DEFAULT_LEVEL;
-static atomic_uint_fast64_t g_nlog_sequence = 0;
-
 static int nlog_level_valid(enum nlog_level level)
 {
     return level >= NLOG_LEVEL_DEBUG && level <= NLOG_LEVEL_ERROR;
 }
 
-static const char *nlog_level_name(enum nlog_level level)
+static char nlog_level_letter(enum nlog_level level)
 {
     switch (level) {
     case NLOG_LEVEL_DEBUG:
-        return "DEBUG";
+        return 'D';
     case NLOG_LEVEL_INFO:
-        return "INFO";
+        return 'I';
     case NLOG_LEVEL_WARN:
-        return "WARN";
+        return 'W';
     case NLOG_LEVEL_ERROR:
-        return "ERROR";
+        return 'E';
     default:
-        return "UNKNOWN";
+        return '?';
     }
 }
 
@@ -93,13 +91,10 @@ static void nlog_vwrite(enum nlog_level level, const char *tag,
                         const char *function, const char *fmt, va_list args)
 {
     struct timespec real_ts;
-    struct timespec mono_ts;
     struct tm tm_now;
     char time_buf[32];
     const char *tag_name;
     const char *source_name;
-    uint64_t mono_ms = 0;
-    uint64_t sequence;
 
     if (!nlog_level_valid(level) || !fmt)
         return;
@@ -116,40 +111,23 @@ static void nlog_vwrite(enum nlog_level level, const char *tag,
     if (strftime(time_buf, sizeof(time_buf), "%Y-%m-%dT%H:%M:%S", &tm_now) == 0)
         return;
 
-    if (clock_gettime(CLOCK_MONOTONIC, &mono_ts) == 0) {
-        mono_ms = (uint64_t)mono_ts.tv_sec * 1000U +
-                  (uint64_t)mono_ts.tv_nsec / 1000000U;
-    }
-
-    sequence = atomic_fetch_add_explicit(&g_nlog_sequence, 1,
-                                         memory_order_relaxed) + 1;
     tag_name = nlog_basename(tag);
     source_name = nlog_basename(source_file);
 
     /* 锁住 stderr, 保证多个线程同时写日志时每条日志保持完整 */
     flockfile(stderr);
 
-    fprintf(stderr,
-            "%s.%03ldZ mono_ms=%" PRIu64 " seq=%" PRIu64
-            " level=%s pid=%ld tid=%" PRIu64,
-            time_buf,
-            real_ts.tv_nsec / 1000000L,
-            mono_ms,
-            sequence,
-            nlog_level_name(level),
-            (long)getpid(),
+    fprintf(stderr, "%s.%03ldZ %c/%s [T%" PRIu64 "]",
+            time_buf, real_ts.tv_nsec / 1000000L,
+            nlog_level_letter(level),
+            tag_name && tag_name[0] != '\0' ? tag_name : "nlog",
             nlog_thread_id());
 
-    if (tag_name && tag_name[0] != '\0')
-        fprintf(stderr, " tag=%s", tag_name);
-
     if (source_name && source_name[0] != '\0')
-        fprintf(stderr, " source=%s:%d", source_name, source_line);
+        fprintf(stderr, " %s:%d", source_name, source_line);
 
-    if (function && function[0] != '\0')
-        fprintf(stderr, " function=%s", function);
-
-    fputc(' ', stderr);
+    (void)function;
+    fputs(" | ", stderr);
     vfprintf(stderr, fmt, args);
     fputc('\n', stderr);
     fflush(stderr);
