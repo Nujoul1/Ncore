@@ -17,17 +17,22 @@ struct nthread_message_queue {
     int err_send;
     int err_recv;
     size_t msg_size;
+    enum nthread_message_drop_policy drop_policy;
     void (*free_func)(void *msg);
 };
 
 int nthread_message_queue_alloc(struct nthread_message_queue **mq,
                                   size_t msg_cap,
-                                  size_t msg_size)
+                                  size_t msg_size,
+                                  enum nthread_message_drop_policy drop_policy)
 {
     struct nthread_message_queue *rmq = NULL;
     int ret = 0;
 
-    if (!mq || !msg_cap || !msg_size)
+    if (!mq || !msg_cap || !msg_size ||
+        (drop_policy != NTHREAD_MESSAGE_DROP_NONE &&
+         drop_policy != NTHREAD_MESSAGE_DROP_OLDEST &&
+         drop_policy != NTHREAD_MESSAGE_DROP_NEWEST))
         return NERROR(EINVAL);
 
     if (msg_cap > SIZE_MAX / msg_size)
@@ -63,6 +68,7 @@ int nthread_message_queue_alloc(struct nthread_message_queue **mq,
         return NERROR(ENOMEM);
     }
     rmq->msg_size = msg_size;
+    rmq->drop_policy = drop_policy;
     *mq = rmq;
     return 0;
 }
@@ -84,23 +90,57 @@ void nthread_message_queue_free(struct nthread_message_queue **mq)
     free(rmq);
 }
 
-static int nthread_message_queue_send_locked(struct nthread_message_queue *mq,
-                                 void *msg,
-                                 unsigned int flags)
+static int free_func_wrap(void *opaque, void *buf, size_t *nb_elems)
 {
+    struct nthread_message_queue *mq = opaque;
+    uint8_t *msg = buf;
+
+    for (size_t i = 0; i < *nb_elems; i++)
+        mq->free_func(msg + i * mq->msg_size);
+
+    return 0;
+}
+
+static int drop_oldest_locked(struct nthread_message_queue *mq)
+{
+    size_t count = 1;
+
+    if (mq->free_func)
+        return nfifo_read_to_cb(mq->fifo, free_func_wrap, mq, &count);
+    return nfifo_drain(mq->fifo, count);
+}
+
+static int nthread_message_queue_send_locked(struct nthread_message_queue *mq,
+                                              void *msg,
+                                              unsigned int flags)
+{
+    int ret = 0;
+
     while (!mq->err_send && !nfifo_can_write(mq->fifo)) {
-        if ((flags & NTHREAD_MESSAGE_NONBLOCK))
-            return NERROR(EAGAIN);
+        if (flags & NTHREAD_MESSAGE_NONBLOCK) {
+            if (mq->drop_policy == NTHREAD_MESSAGE_DROP_NONE)
+                return NERROR(EAGAIN);
+            if (mq->drop_policy == NTHREAD_MESSAGE_DROP_NEWEST) {
+                if (mq->free_func)
+                    mq->free_func(msg);
+                return NTHREAD_MESSAGE_SEND_DROPPED;
+            }
+            ret = drop_oldest_locked(mq);
+            if (ret < 0)
+                return ret;
+            ret = NTHREAD_MESSAGE_SEND_DROPPED;
+            break;
+        }
         pthread_cond_wait(&mq->cond_send, &mq->lock);
     }
     
-    if (mq->err_send)      // 消费者出错直接退出
+    if (mq->err_send)      // 消费者出错时直接退出
         return mq->err_send;
 
     nfifo_write(mq->fifo, msg, 1);
     pthread_cond_signal(&mq->cond_recv);
 
-    return 0;
+    return ret;
 }
 
 int nthread_message_queue_send(struct nthread_message_queue *mq,
@@ -131,7 +171,7 @@ static int nthread_message_queue_recv_locked(struct nthread_message_queue *mq,
     if (!nfifo_can_read(mq->fifo))
         return mq->err_recv;
 
-    nfifo_read(mq->fifo, msg, 1);   // 不论生产者是否出错, 都需要把队列数据输出
+    nfifo_read(mq->fifo, msg, 1);   // 生产者出错后仍然需要排空已有消息
     pthread_cond_signal(&mq->cond_send);
     return 0;
 }
@@ -184,17 +224,6 @@ size_t nthread_message_queue_get_msg_count(struct nthread_message_queue *mq)
     can_read = nfifo_can_read(mq->fifo);
     pthread_mutex_unlock(&mq->lock);
     return can_read;
-}
-
-static int free_func_wrap(void *opaque, void *buf, size_t *nb_elems)
-{
-    struct nthread_message_queue *mq = opaque;
-    uint8_t *msg = buf;
-
-    for (size_t i = 0; i < *nb_elems; i++)
-        mq->free_func(msg + i * mq->msg_size);
-
-    return 0;
 }
 
 void nthread_message_flush(struct nthread_message_queue *mq)

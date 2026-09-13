@@ -56,9 +56,15 @@ static void test_invalid_arguments(void)
 {
     struct nthread_message_queue *mq = NULL;
 
-    assert(nthread_message_queue_alloc(NULL, 1, sizeof(int)) == -EINVAL);
-    assert(nthread_message_queue_alloc(&mq, 0, sizeof(int)) == -EINVAL);
-    assert(nthread_message_queue_alloc(&mq, 1, 0) == -EINVAL);
+    assert(nthread_message_queue_alloc(NULL, 1, sizeof(int),
+                                       NTHREAD_MESSAGE_DROP_NONE) == -EINVAL);
+    assert(nthread_message_queue_alloc(&mq, 0, sizeof(int),
+                                       NTHREAD_MESSAGE_DROP_NONE) == -EINVAL);
+    assert(nthread_message_queue_alloc(&mq, 1, 0,
+                                       NTHREAD_MESSAGE_DROP_NONE) == -EINVAL);
+    assert(nthread_message_queue_alloc(&mq, 1, sizeof(int),
+                                       (enum nthread_message_drop_policy)-1) ==
+           -EINVAL);
     assert(mq == NULL);
 
     nthread_message_queue_free(NULL);
@@ -71,7 +77,8 @@ static void test_nonblocking(void)
     int input = 11;
     int output = 0;
 
-    assert(nthread_message_queue_alloc(&mq, 1, sizeof(int)) == 0);
+    assert(nthread_message_queue_alloc(&mq, 1, sizeof(int),
+                                       NTHREAD_MESSAGE_DROP_NONE) == 0);
     assert(nthread_message_queue_recv(mq, &output,
                                       NTHREAD_MESSAGE_NONBLOCK) == -EAGAIN);
     assert(nthread_message_queue_send(mq, &input, 0) == 0);
@@ -83,6 +90,48 @@ static void test_nonblocking(void)
     assert(mq == NULL);
 }
 
+static void test_nonblocking_drops_oldest(void)
+{
+    struct nthread_message_queue *mq = NULL;
+    int input[] = { 11, 12, 13 };
+    int output = 0;
+
+    assert(nthread_message_queue_alloc(&mq, 2, sizeof(int),
+                                       NTHREAD_MESSAGE_DROP_OLDEST) == 0);
+    assert(nthread_message_queue_send(mq, &input[0], 0) == 0);
+    assert(nthread_message_queue_send(mq, &input[1], 0) == 0);
+    assert(nthread_message_queue_send(mq, &input[2],
+                                      NTHREAD_MESSAGE_NONBLOCK) ==
+           NTHREAD_MESSAGE_SEND_DROPPED);
+    assert(nthread_message_queue_get_msg_count(mq) == 2);
+    assert(nthread_message_queue_recv(mq, &output, 0) == 0);
+    assert(output == 12);
+    assert(nthread_message_queue_recv(mq, &output, 0) == 0);
+    assert(output == 13);
+    nthread_message_queue_free(&mq);
+}
+
+static void test_nonblocking_drops_newest(void)
+{
+    struct nthread_message_queue *mq = NULL;
+    int input[] = { 11, 12, 13 };
+    int output = 0;
+
+    assert(nthread_message_queue_alloc(&mq, 2, sizeof(int),
+                                       NTHREAD_MESSAGE_DROP_NEWEST) == 0);
+    assert(nthread_message_queue_send(mq, &input[0], 0) == 0);
+    assert(nthread_message_queue_send(mq, &input[1], 0) == 0);
+    assert(nthread_message_queue_send(mq, &input[2],
+                                      NTHREAD_MESSAGE_NONBLOCK) ==
+           NTHREAD_MESSAGE_SEND_DROPPED);
+    assert(nthread_message_queue_get_msg_count(mq) == 2);
+    assert(nthread_message_queue_recv(mq, &output, 0) == 0);
+    assert(output == 11);
+    assert(nthread_message_queue_recv(mq, &output, 0) == 0);
+    assert(output == 12);
+    nthread_message_queue_free(&mq);
+}
+
 static void test_data_wakeups(void)
 {
     struct nthread_message_queue *mq = NULL;
@@ -90,7 +139,8 @@ static void test_data_wakeups(void)
     pthread_t thread;
     int value;
 
-    assert(nthread_message_queue_alloc(&mq, 1, sizeof(int)) == 0);
+    assert(nthread_message_queue_alloc(&mq, 1, sizeof(int),
+                                       NTHREAD_MESSAGE_DROP_OLDEST) == 0);
 
     call.mq = mq;
     assert(pthread_create(&thread, NULL, blocking_recv, &call) == 0);
@@ -123,7 +173,8 @@ static void test_error_wakeups(void)
     pthread_t thread;
     int value = 41;
 
-    assert(nthread_message_queue_alloc(&mq, 1, sizeof(int)) == 0);
+    assert(nthread_message_queue_alloc(&mq, 1, sizeof(int),
+                                       NTHREAD_MESSAGE_DROP_NONE) == 0);
     assert(nthread_message_queue_send(mq, &value, 0) == 0);
     call = (struct thread_call){ .mq = mq, .value = 42 };
     assert(pthread_create(&thread, NULL, blocking_send, &call) == 0);
@@ -135,7 +186,8 @@ static void test_error_wakeups(void)
 
     mq = NULL;
     call = (struct thread_call){ 0 };
-    assert(nthread_message_queue_alloc(&mq, 1, sizeof(int)) == 0);
+    assert(nthread_message_queue_alloc(&mq, 1, sizeof(int),
+                                       NTHREAD_MESSAGE_DROP_NONE) == 0);
     call.mq = mq;
     assert(pthread_create(&thread, NULL, blocking_recv, &call) == 0);
     wait_started(&call);
@@ -151,7 +203,8 @@ static void test_recv_drains_before_error(void)
     int input[] = { 51, 52 };
     int output = 0;
 
-    assert(nthread_message_queue_alloc(&mq, 2, sizeof(int)) == 0);
+    assert(nthread_message_queue_alloc(&mq, 2, sizeof(int),
+                                       NTHREAD_MESSAGE_DROP_NONE) == 0);
     assert(nthread_message_queue_send(mq, &input[0], 0) == 0);
     assert(nthread_message_queue_send(mq, &input[1], 0) == 0);
     nthread_message_queue_set_err_recv(mq, -ECANCELED);
@@ -170,7 +223,8 @@ static void test_flush_without_destructor(void)
     struct nthread_message_queue *mq = NULL;
     int values[] = { 61, 62, 63 };
 
-    assert(nthread_message_queue_alloc(&mq, 3, sizeof(int)) == 0);
+    assert(nthread_message_queue_alloc(&mq, 3, sizeof(int),
+                                       NTHREAD_MESSAGE_DROP_NONE) == 0);
     for (size_t i = 0; i < 3; i++)
         assert(nthread_message_queue_send(mq, &values[i], 0) == 0);
 
@@ -185,7 +239,8 @@ static void test_flush_calls_destructor(void)
     void *messages[3];
 
     atomic_store(&freed_count, 0);
-    assert(nthread_message_queue_alloc(&mq, 3, sizeof(void *)) == 0);
+    assert(nthread_message_queue_alloc(&mq, 3, sizeof(void *),
+                                       NTHREAD_MESSAGE_DROP_NONE) == 0);
     nthread_message_queue_set_free_func(mq, free_pointer_message);
 
     for (size_t i = 0; i < 3; i++) {
@@ -209,7 +264,8 @@ static void test_recv_transfers_ownership(void)
 
     assert(input);
     atomic_store(&freed_count, 0);
-    assert(nthread_message_queue_alloc(&mq, 1, sizeof(void *)) == 0);
+    assert(nthread_message_queue_alloc(&mq, 1, sizeof(void *),
+                                       NTHREAD_MESSAGE_DROP_NONE) == 0);
     nthread_message_queue_set_free_func(mq, free_pointer_message);
     assert(nthread_message_queue_send(mq, &input, 0) == 0);
     assert(nthread_message_queue_recv(mq, &output, 0) == 0);
@@ -227,7 +283,8 @@ static void test_queue_free_releases_pending_messages(void)
     void *messages[2];
 
     atomic_store(&freed_count, 0);
-    assert(nthread_message_queue_alloc(&mq, 2, sizeof(void *)) == 0);
+    assert(nthread_message_queue_alloc(&mq, 2, sizeof(void *),
+                                       NTHREAD_MESSAGE_DROP_NONE) == 0);
     nthread_message_queue_set_free_func(mq, free_pointer_message);
 
     for (size_t i = 0; i < 2; i++) {
@@ -241,10 +298,61 @@ static void test_queue_free_releases_pending_messages(void)
     assert(atomic_load(&freed_count) == 2);
 }
 
+static void test_drop_oldest_calls_destructor(void)
+{
+    struct nthread_message_queue *mq = NULL;
+    void *old_message = malloc(16);
+    void *new_message = malloc(16);
+
+    assert(old_message);
+    assert(new_message);
+    atomic_store(&freed_count, 0);
+    assert(nthread_message_queue_alloc(&mq, 1, sizeof(void *),
+                                       NTHREAD_MESSAGE_DROP_OLDEST) == 0);
+    nthread_message_queue_set_free_func(mq, free_pointer_message);
+    assert(nthread_message_queue_send(mq, &old_message, 0) == 0);
+    assert(nthread_message_queue_send(mq, &new_message,
+                                      NTHREAD_MESSAGE_NONBLOCK) ==
+           NTHREAD_MESSAGE_SEND_DROPPED);
+    assert(atomic_load(&freed_count) == 1);
+
+    nthread_message_queue_free(&mq);
+    assert(atomic_load(&freed_count) == 2);
+}
+
+static void test_drop_newest_calls_destructor(void)
+{
+    struct nthread_message_queue *mq = NULL;
+    void *old_message = malloc(16);
+    void *new_message = malloc(16);
+    void *output = NULL;
+
+    assert(old_message);
+    assert(new_message);
+    atomic_store(&freed_count, 0);
+    assert(nthread_message_queue_alloc(&mq, 1, sizeof(void *),
+                                       NTHREAD_MESSAGE_DROP_NEWEST) == 0);
+    nthread_message_queue_set_free_func(mq, free_pointer_message);
+    assert(nthread_message_queue_send(mq, &old_message, 0) == 0);
+    assert(nthread_message_queue_send(mq, &new_message,
+                                      NTHREAD_MESSAGE_NONBLOCK) ==
+           NTHREAD_MESSAGE_SEND_DROPPED);
+    assert(atomic_load(&freed_count) == 1);
+    assert(nthread_message_queue_get_msg_count(mq) == 1);
+    assert(nthread_message_queue_recv(mq, &output, 0) == 0);
+    assert(output == old_message);
+
+    nthread_message_queue_free(&mq);
+    assert(atomic_load(&freed_count) == 1);
+    free(output);
+}
+
 int main(void)
 {
     test_invalid_arguments();
     test_nonblocking();
+    test_nonblocking_drops_oldest();
+    test_nonblocking_drops_newest();
     test_data_wakeups();
     test_error_wakeups();
     test_recv_drains_before_error();
@@ -252,6 +360,8 @@ int main(void)
     test_flush_calls_destructor();
     test_recv_transfers_ownership();
     test_queue_free_releases_pending_messages();
+    test_drop_oldest_calls_destructor();
+    test_drop_newest_calls_destructor();
 
     puts("nthread_message tests passed");
     return 0;
